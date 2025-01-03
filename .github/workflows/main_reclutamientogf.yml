@@ -64,4 +64,4 @@ jobs:
         with:
           app-name: 'reclutamientogf'
           slot-name: 'Production'
-          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_C7FBF53A8DF447E49187DB3A5308403D }}
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_AADDB3EDAED640A0A9A256ABFA2D99ED }}
