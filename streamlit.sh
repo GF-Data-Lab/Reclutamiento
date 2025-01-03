@@ -13,4 +13,4 @@ gpg --verify mssql-tools_17.10.1.1-1_amd64.sig mssql-tools_17.10.1.1-1_amd64.apk
 sudo apk add --allow-untrusted msodbcsql17_17.10.5.1-1_amd64.apk
 sudo apk add --allow-untrusted mssql-tools_17.10.1.1-1_amd64.apk
 
-python -m streamlit run interfaz_cvs.py --server.port 8000 --server.address 0.0.0.0
+python -m streamlit run app.py --server.port 8000 --server.address 0.0.0.0
