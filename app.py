@@ -8,27 +8,25 @@ from functions import Agent, get_current_id, EmbeddingAgent, Client, RelationalC
 
 
 #### 19-02-2025 ####
-from pydantic import BaseModel, Field
 from pydantic import ValidationError
+from typing import Optional
+from pydantic import BaseModel, Field
+
 class CVData(BaseModel):
-    Nombre: str = Field(..., description="Nombre del candidato")
-    Ciudad: str = Field(..., description="Ciudad de residencia")
-    País: str = Field(..., description="País de residencia")
-    Fecha_de_Nacimiento: str = Field(..., description="Cadena con la fecha, ejemplo: 1 de Enero de 1990")
-    Carrera: str = Field(..., description="Carrera estudiada (ej: Ingeniería en Informática)")
-    Número_de_Teléfono: str = Field(..., alias="Número de Teléfono", description="Número de contacto")
-    Correo: str = Field(..., description="Email del candidato")
-    Entidad_Donde_Estudió: str = Field(..., alias="Entidad Donde Estudió", description="Institución educativa")
-    Resumen_del_Postulante: str = Field(..., alias="Resumen del Postulante", description="Breve descripción o resumen del perfil")
-    
+    Nombre: str = Field("No especificado", alias="Nombre")
+    Ciudad: str = Field("No especificado", alias="Ciudad")
+    País: str = Field("No especificado", alias="País")
+    Fecha_de_Nacimiento: str = Field("No especificado", alias="Fecha de Nacimiento")
+    Carrera: str = Field("No especificado", alias="Carrera")
+    Número_de_Teléfono: str = Field("No especificado", alias="Número de Teléfono")
+    Correo: str = Field("No especificado", alias="Correo")
+    Entidad_Donde_Estudió: str = Field("No especificado", alias="Entidad Donde Estudió")
+    Resumen_del_Postulante: str = Field("No especificado", alias="Resumen del Postulante")
+
     class Config:
-        # Si quieres permitir que Pydantic ignore campos extras que el modelo devuelva
-        # en lugar de lanzar un error, activa "extra='ignore'":
-        extra = 'ignore'
-        # Si quieres que Pydantic casee automáticamente los alias, setea
-        # "allow_population_by_field_name = True". Así
-        # si tu JSON viene con "Entidad Donde Estudió": "Universidad X"
-        # Pydantic lo va a mapear al campo "Entidad_Donde_Estudió"
+        # Ignora cualquier campo extra que no esté declarado en el modelo.
+        extra = "ignore"
+        # Permite que Pydantic haga la correspondencia por alias
         allow_population_by_field_name = True
 #### 19-02-2025 ####
 
@@ -86,20 +84,23 @@ def process_pdf(pdf_text, prompt):
     agent = Agent(user_prompt)
     raw_output = agent.getResp()
 
-    raw_output = limpiar_output(raw_output)
+    raw_output = limpiar_output(raw_output)  # sigue limpiando backticks, "json", etc.
     
     try:
-        # Pydantic puede parsear directamente el string JSON
+        # Pydantic parsea directamente el string JSON
         cv_data = CVData.parse_raw(raw_output)
     except ValidationError as ve:
-        # Maneja el caso en que la IA devuelva JSON malformado
-        # o sin las claves obligatorias
-        print("Error de validación Pydantic:", ve)
-        # Aquí podrías generar una excepción propia o retornar un df vacío:
-        raise ValueError(f"Respuesta del modelo no cumple formato JSON esperado: {ve}")
+        # Maneja el caso de JSON mal formado o errores de validación
+        raise ValueError(f"El modelo no devolvió JSON válido o faltan campos: {ve}")
+    except json.JSONDecodeError as je:
+        # Maneja si directamente es un JSON invalido
+        raise ValueError(f"No se pudo decodificar el JSON: {je}")
 
-    # Conviertes el objeto pydantic a dict y luego a DataFrame
-    df = pd.DataFrame([cv_data.dict(by_alias=True)])
+    # Convertir a diccionario usando los alias originales
+    data_dict = cv_data.dict(by_alias=True)
+    
+    # Crea un DataFrame con una sola fila
+    df = pd.DataFrame([data_dict])
     return df
 #### 19-02-2025 ####
 
