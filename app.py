@@ -4,8 +4,36 @@ import PyPDF2
 import json
 import pandas as pd
 import time
-
 from functions import Agent, get_current_id, EmbeddingAgent, Client, RelationalClient
+
+
+#### 19-02-2025 ####
+from pydantic import BaseModel, Field
+from pydantic import ValidationError
+class CVData(BaseModel):
+    Nombre: str = Field(..., description="Nombre del candidato")
+    Ciudad: str = Field(..., description="Ciudad de residencia")
+    País: str = Field(..., description="País de residencia")
+    Fecha_de_Nacimiento: str = Field(..., description="Cadena con la fecha, ejemplo: 1 de Enero de 1990")
+    Carrera: str = Field(..., description="Carrera estudiada (ej: Ingeniería en Informática)")
+    Número_de_Teléfono: str = Field(..., alias="Número de Teléfono", description="Número de contacto")
+    Correo: str = Field(..., description="Email del candidato")
+    Entidad_Donde_Estudió: str = Field(..., alias="Entidad Donde Estudió", description="Institución educativa")
+    Resumen_del_Postulante: str = Field(..., alias="Resumen del Postulante", description="Breve descripción o resumen del perfil")
+    
+    class Config:
+        # Si quieres permitir que Pydantic ignore campos extras que el modelo devuelva
+        # en lugar de lanzar un error, activa "extra='ignore'":
+        extra = 'ignore'
+        # Si quieres que Pydantic casee automáticamente los alias, setea
+        # "allow_population_by_field_name = True". Así
+        # si tu JSON viene con "Entidad Donde Estudió": "Universidad X"
+        # Pydantic lo va a mapear al campo "Entidad_Donde_Estudió"
+        allow_population_by_field_name = True
+#### 19-02-2025 ####
+
+
+
 
 # Instanciamos los objetos necesarios
 embed_agent = EmbeddingAgent()
@@ -30,6 +58,25 @@ def limpiar_output(json_str):
     json_str = json_str.replace('json', '')  
     return json_str.strip()
 
+
+#### 19-02-2025 ####
+## Descomentar la función si no corre el código
+# def process_pdf(pdf_text, prompt):
+#     """
+#     Recibe el texto de un PDF y un prompt, llama a la clase Agent,
+#     interpreta la respuesta como JSON y la devuelve en un DataFrame.
+#     """
+#     user_prompt = prompt + f'{pdf_text}'
+#     agent = Agent(user_prompt)
+#     output = agent.getResp()
+
+#     output = limpiar_output(output)
+#     output = json.loads(output)
+
+#     # Creamos un DataFrame con una sola fila
+#     df = pd.DataFrame([output])
+#     return df
+
 def process_pdf(pdf_text, prompt):
     """
     Recibe el texto de un PDF y un prompt, llama a la clase Agent,
@@ -37,14 +84,24 @@ def process_pdf(pdf_text, prompt):
     """
     user_prompt = prompt + f'{pdf_text}'
     agent = Agent(user_prompt)
-    output = agent.getResp()
+    raw_output = agent.getResp()
 
-    output = limpiar_output(output)
-    output = json.loads(output)
+    raw_output = limpiar_output(raw_output)
+    
+    try:
+        # Pydantic puede parsear directamente el string JSON
+        cv_data = CVData.parse_raw(raw_output)
+    except ValidationError as ve:
+        # Maneja el caso en que la IA devuelva JSON malformado
+        # o sin las claves obligatorias
+        print("Error de validación Pydantic:", ve)
+        # Aquí podrías generar una excepción propia o retornar un df vacío:
+        raise ValueError(f"Respuesta del modelo no cumple formato JSON esperado: {ve}")
 
-    # Creamos un DataFrame con una sola fila
-    df = pd.DataFrame([output])
+    # Conviertes el objeto pydantic a dict y luego a DataFrame
+    df = pd.DataFrame([cv_data.dict(by_alias=True)])
     return df
+#### 19-02-2025 ####
 
 def main():
     # Configura la página
@@ -89,24 +146,43 @@ def main():
         #         Todo esto en formato JSON. No agregues más campos/claves de las que te pedí, sé exacto."""
 
 
+        # prompt = """
+        #         A continuación verás un currículum vitae. 
+        #         Quiero que extraigas exactamente estos campos: 
+        #           - Nombre
+        #           - Ciudad
+        #           - País
+        #           - Fecha de Nacimiento
+        #           - Carrera
+        #           - Número de Teléfono
+        #           - Correo
+        #           - Entidad Donde Estudió
+        #           - Resumen del Postulante
+                
+        #         Devuélvelos ÚNICAMENTE en formato JSON válido (sin texto adicional, sin códigos Markdown), 
+        #         con las llaves en español correspondientes. 
+                
+        #         Currículum:
+        #         """
         prompt = """
-                A continuación verás un currículum vitae. 
-                Quiero que extraigas exactamente estos campos: 
-                  - Nombre
-                  - Ciudad
-                  - País
-                  - Fecha de Nacimiento
-                  - Carrera
-                  - Número de Teléfono
-                  - Correo
-                  - Entidad Donde Estudió
-                  - Resumen del Postulante
-                
-                Devuélvelos ÚNICAMENTE en formato JSON válido (sin texto adicional, sin códigos Markdown), 
-                con las llaves en español correspondientes. 
-                
-                Currículum:
-                """
+        A continuación verás un currículum vitae. 
+        Extrae los siguientes campos y devuélvelos ÚNICAMENTE en formato JSON válido: 
+        {
+          "Nombre": "...",
+          "Ciudad": "...",
+          "País": "...",
+          "Fecha de Nacimiento": "...",
+          "Carrera": "...",
+          "Número de Teléfono": "...",
+          "Correo": "...",
+          "Entidad Donde Estudió": "...",
+          "Resumen del Postulante": "..."
+        }
+        
+        No incluyas texto adicional, ni bloques de código. 
+        Currículum:
+        """
+
 
 
         uploaded_files = st.file_uploader(
