@@ -24,9 +24,7 @@ class CVData(BaseModel):
     Resumen_del_Postulante: str = Field("No especificado", alias="Resumen del Postulante")
 
     class Config:
-        # Ignora cualquier campo extra que no esté declarado en el modelo.
         extra = "ignore"
-        # Permite que Pydantic haga la correspondencia por alias
         allow_population_by_field_name = True
 #### 19-02-2025 ####
 
@@ -87,19 +85,14 @@ def process_pdf(pdf_text, prompt):
     raw_output = limpiar_output(raw_output)  # sigue limpiando backticks, "json", etc.
     
     try:
-        # Pydantic parsea directamente el string JSON
         cv_data = CVData.parse_raw(raw_output)
     except ValidationError as ve:
-        # Maneja el caso de JSON mal formado o errores de validación
         raise ValueError(f"El modelo no devolvió JSON válido o faltan campos: {ve}")
     except json.JSONDecodeError as je:
-        # Maneja si directamente es un JSON invalido
         raise ValueError(f"No se pudo decodificar el JSON: {je}")
 
-    # Convertir a diccionario usando los alias originales
     data_dict = cv_data.dict(by_alias=True)
     
-    # Crea un DataFrame con una sola fila
     df = pd.DataFrame([data_dict])
     return df
 #### 19-02-2025 ####
