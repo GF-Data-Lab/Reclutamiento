@@ -82,11 +82,32 @@ def main():
             """
         )
 
-        prompt = """Quiero los siguientes datos del siguiente currículum vitae:
-                Nombre, Ciudad, País, Fecha de Nacimiento (en formato: 'Número' de 'Mes' del 'Año'),
-                Carrera, Número de Teléfono, Correo,
-                Entidad Donde Estudió (por ej: Universidad de O'Higgins) y Resumen del Postulante.
-                Todo esto en formato JSON. No agregues más campos/claves de las que te pedí, sé exacto."""
+        # prompt = """Quiero los siguientes datos del siguiente currículum vitae:
+        #         Nombre, Ciudad, País, Fecha de Nacimiento (en formato: 'Número' de 'Mes' del 'Año'),
+        #         Carrera, Número de Teléfono, Correo,
+        #         Entidad Donde Estudió (por ej: Universidad de O'Higgins) y Resumen del Postulante.
+        #         Todo esto en formato JSON. No agregues más campos/claves de las que te pedí, sé exacto."""
+
+
+        prompt = """
+                A continuación verás un currículum vitae. 
+                Quiero que extraigas exactamente estos campos: 
+                  - Nombre
+                  - Ciudad
+                  - País
+                  - Fecha de Nacimiento
+                  - Carrera
+                  - Número de Teléfono
+                  - Correo
+                  - Entidad Donde Estudió
+                  - Resumen del Postulante
+                
+                Devuélvelos ÚNICAMENTE en formato JSON válido (sin texto adicional, sin códigos Markdown), 
+                con las llaves en español correspondientes. 
+                
+                Currículum:
+                """
+
 
         uploaded_files = st.file_uploader(
             "Arrastra o haz clic para subir PDFs",
