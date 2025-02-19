@@ -78,21 +78,37 @@ def process_pdf(pdf_text, prompt):
     Recibe el texto de un PDF y un prompt, llama a la clase Agent,
     interpreta la respuesta como JSON y la devuelve en un DataFrame.
     """
-    user_prompt = prompt + f'{pdf_text}'
+    user_prompt = prompt + f"{pdf_text}"
     agent = Agent(user_prompt)
     raw_output = agent.getResp()
 
-    raw_output = limpiar_output(raw_output)  # sigue limpiando backticks, "json", etc.
-    
+    # Primero limpiamos el output de backticks y palabras sueltas:
+    raw_output = limpiar_output(raw_output)
+
+    # Intentamos aislar solo la parte JSON (en caso de que el modelo
+    # haya agregado texto extra o disclaimers antes/después).
+    if not raw_output.strip().startswith("{") or not raw_output.strip().endswith("}"):
+        first_brace_index = raw_output.find("{")
+        last_brace_index = raw_output.rfind("}")
+        if first_brace_index == -1 or last_brace_index == -1:
+            raise ValueError(
+                f"No se encontró JSON válido en la respuesta del modelo.\n\nRespuesta completa:\n{raw_output}"
+            )
+        # Extraemos únicamente el contenido entre las primeras y últimas llaves.
+        raw_output = raw_output[first_brace_index:last_brace_index+1]
+
+    # Ahora parseamos con Pydantic para asegurarnos de que cumpla la estructura
     try:
         cv_data = CVData.parse_raw(raw_output)
     except ValidationError as ve:
-        raise ValueError(f"El modelo no devolvió JSON válido o faltan campos: {ve}")
+        # Puede fallar porque falta un campo o porque la estructura no coincide.
+        raise ValueError(f"El modelo no devolvió JSON válido o faltan campos: {ve}\n\nRespuesta:\n{raw_output}")
     except json.JSONDecodeError as je:
-        raise ValueError(f"No se pudo decodificar el JSON: {je}")
+        # Ocurre si la cadena no es parseable como JSON.
+        raise ValueError(f"No se pudo decodificar el JSON: {je}\n\nRespuesta:\n{raw_output}")
 
+    # Convertimos el objeto Pydantic a diccionario y luego a DataFrame
     data_dict = cv_data.dict(by_alias=True)
-    
     df = pd.DataFrame([data_dict])
     return df
 #### 19-02-2025 ####
