@@ -209,6 +209,12 @@ def main():
                     with st.spinner("Procesando PDF(s)..."):
                         for pdf_file in uploaded_files:
                             pdf_text = read_file(pdf_file)
+                            if not pdf_text.strip():
+                                st.warning(
+                                    f"El archivo '{pdf_file.name}' parece no contener texto "
+                                    "(tal vez es un PDF solo con imágenes). Se omitirá."
+                                )
+                                continue
                             df = process_pdf(pdf_text, prompt)
                             all_dfs.append(df)
                             # Insertamos en Milvus
