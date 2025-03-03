@@ -109,8 +109,9 @@ class RelationalClient():
     def getAllCandidates(self):
         query = "SELECT * FROM [API_RECLUTAMIENTO].[STG_CANDIDATOS]"
         df = pd.read_sql(query, con=self.engine2)
-        
         return df
+    def executeSP(self):
+        
     
 
 class Agent:
