@@ -1,133 +1,23 @@
-import streamlit as st
-import pandas as pd
-from st_aggrid import AgGrid, GridOptionsBuilder
-import requests
-import PyPDF2
-import json
-import pandas as pd
+import os
 import time
+import json
+import base64
+import PyPDF2
+import pandas as pd
+import streamlit as st
+from st_aggrid import AgGrid, GridOptionsBuilder
+
+# Librerías para autenticación
+from streamlit_oauth import OAuth2Component
+from pydantic import ValidationError, BaseModel, Field
+from typing import Optional
+
+# Importa tus clases/funciones principales
 from functions import Agent, get_current_id, EmbeddingAgent, Client, RelationalClient
 
-
-#### 19-02-2025 ####
-from pydantic import ValidationError
-from typing import Optional
-from pydantic import BaseModel, Field
-
-class CVData(BaseModel):
-    Nombre: str = Field("No especificado", alias="Nombre")
-    Ciudad: str = Field("No especificado", alias="Ciudad")
-    País: str = Field("No especificado", alias="País")
-    Fecha_de_Nacimiento: str = Field("No especificado", alias="Fecha de Nacimiento")
-    Carrera: str = Field("No especificado", alias="Carrera")
-    Número_de_Teléfono: str = Field("No especificado", alias="Número de Teléfono")
-    Correo: str = Field("No especificado", alias="Correo")
-    Entidad_Donde_Estudió: str = Field("No especificado", alias="Entidad Donde Estudió")
-    Resumen_del_Postulante: str = Field("No especificado", alias="Resumen del Postulante")
-    RUN: str = Field("No especificado", alias = "RUN del postulante")
-
-    class Config:
-        extra = "ignore"
-        allow_population_by_field_name = True
-#### 19-02-2025 ####
-
-
-
-
-# Instanciamos los objetos necesarios
-embed_agent = EmbeddingAgent()
-client = Client()
-relational_client = RelationalClient()
-
-def read_file(file):
-    """
-    Lee un PDF (ya sea ruta local o un objeto de Streamlit) y devuelve todo el texto.
-    """
-    text = ""
-    reader = PyPDF2.PdfReader(file)
-    for page in reader.pages:
-        text += page.extract_text() + "\n"
-    return text
-
-def limpiar_output(json_str):
-    """
-    Limpia el string JSON que regresa el modelo para poder parsearlo correctamente.
-    """
-    json_str = json_str.strip('```')  
-    json_str = json_str.replace('json', '')  
-    return json_str.strip()
-
-
-#### 19-02-2025 ####
-## Descomentar la función si no corre el código
-# def process_pdf(pdf_text, prompt):
-#     """
-#     Recibe el texto de un PDF y un prompt, llama a la clase Agent,
-#     interpreta la respuesta como JSON y la devuelve en un DataFrame.
-#     """
-#     user_prompt = prompt + f'{pdf_text}'
-#     agent = Agent(user_prompt)
-#     output = agent.getResp()
-
-#     output = limpiar_output(output)
-#     output = json.loads(output)
-
-#     # Creamos un DataFrame con una sola fila
-#     df = pd.DataFrame([output])
-#     return df
-
-def process_pdf(pdf_text, prompt):
-    """
-    Recibe el texto de un PDF y un prompt, llama a la clase Agent,
-    interpreta la respuesta como JSON y la devuelve en un DataFrame.
-    """
-    user_prompt = prompt + f"{pdf_text}"
-    agent = Agent(user_prompt)
-    raw_output = agent.getResp()
-
-    # Primero limpiamos el output de backticks y palabras sueltas:
-    raw_output = limpiar_output(raw_output)
-
-    # Intentamos aislar solo la parte JSON (en caso de que el modelo
-    # haya agregado texto extra o disclaimers antes/después).
-    if not raw_output.strip().startswith("{") or not raw_output.strip().endswith("}"):
-        first_brace_index = raw_output.find("{")
-        last_brace_index = raw_output.rfind("}")
-        if first_brace_index == -1 or last_brace_index == -1:
-            raise ValueError(
-                f"No se encontró JSON válido en la respuesta del modelo.\n\nRespuesta completa:\n{raw_output}"
-            )
-        # Extraemos únicamente el contenido entre las primeras y últimas llaves.
-        raw_output = raw_output[first_brace_index:last_brace_index+1]
-
-    # Ahora parseamos con Pydantic para asegurarnos de que cumpla la estructura
-    try:
-        cv_data = CVData.parse_raw(raw_output)
-    except ValidationError as ve:
-        # Puede fallar porque falta un campo o porque la estructura no coincide.
-        raise ValueError(f"El modelo no devolvió JSON válido o faltan campos: {ve}\n\nRespuesta:\n{raw_output}")
-    except json.JSONDecodeError as je:
-        # Ocurre si la cadena no es parseable como JSON.
-        raise ValueError(f"No se pudo decodificar el JSON: {je}\n\nRespuesta:\n{raw_output}")
-
-    # Convertimos el objeto Pydantic a diccionario y luego a DataFrame
-    data_dict = cv_data.dict(by_alias=True)
-    df = pd.DataFrame([data_dict])
-    return df
-#### 19-02-2025 ####
-
-import streamlit as st
-import pandas as pd
-from st_aggrid import AgGrid, GridOptionsBuilder
-import requests
-import PyPDF2
-import json
-import time
-from functions import Agent, get_current_id, EmbeddingAgent, Client, RelationalClient
-
-from pydantic import ValidationError
-from typing import Optional
-from pydantic import BaseModel, Field
+# Directorio local donde guardarás los PDFs
+UPLOAD_DIR = "pdf_uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 class CVData(BaseModel):
     Nombre: str = Field("No especificado", alias="Nombre")
@@ -145,175 +35,262 @@ class CVData(BaseModel):
         extra = "ignore"
         allow_population_by_field_name = True
 
-# Instanciamos los objetos necesarios
-embed_agent = EmbeddingAgent()
-client = Client()
-relational_client = RelationalClient()
-
-def read_file(file):
-    """
-    Lee un PDF (ya sea ruta local o un objeto de Streamlit) y devuelve todo el texto.
-    """
-    text = ""
-    reader = PyPDF2.PdfReader(file)
-    for page in reader.pages:
-        text += page.extract_text() + "\n"
-    return text
-
-def limpiar_output(json_str):
-    """
-    Limpia el string JSON que regresa el modelo para poder parsearlo correctamente.
-    """
-    json_str = json_str.strip('```')
-    json_str = json_str.replace('json', '')
-    return json_str.strip()
-
-def process_pdf(pdf_text, prompt):
-    """
-    Recibe el texto de un PDF y un prompt, llama a la clase Agent,
-    interpreta la respuesta como JSON y la devuelve en un DataFrame.
-    """
-    user_prompt = prompt + f"{pdf_text}"
-    agent = Agent(user_prompt)
-    raw_output = agent.getResp()
-
-    # Primero limpiamos el output de backticks y palabras sueltas:
-    raw_output = limpiar_output(raw_output)
-
-    # Intentamos aislar solo la parte JSON
-    if not raw_output.strip().startswith("{") or not raw_output.strip().endswith("}"):
-        first_brace_index = raw_output.find("{")
-        last_brace_index = raw_output.rfind("}")
-        if first_brace_index == -1 or last_brace_index == -1:
-            raise ValueError(
-                f"No se encontró JSON válido en la respuesta del modelo.\n\nRespuesta completa:\n{raw_output}"
-            )
-        raw_output = raw_output[first_brace_index:last_brace_index+1]
-
-    try:
-        cv_data = CVData.parse_raw(raw_output)
-    except ValidationError as ve:
-        raise ValueError(f"El modelo no devolvió JSON válido o faltan campos: {ve}\n\nRespuesta:\n{raw_output}")
-    except json.JSONDecodeError as je:
-        raise ValueError(f"No se pudo decodificar el JSON: {je}\n\nRespuesta:\n{raw_output}")
-
-    data_dict = cv_data.dict(by_alias=True)
-    df = pd.DataFrame([data_dict])
-    return df
-
 def main():
+    # Configuración inicial de la página
     st.set_page_config(
         page_title="Caza Talentos: Encontrar al Candidato Ideal",
         page_icon=":mag_right:",
         layout="centered"
     )
 
+    # -------------------------------------------------------------------------
+    # 1) BLOQUE DE AUTENTICACIÓN
+    # -------------------------------------------------------------------------
+    AUTHORIZE_URL = os.environ.get(
+        'AUTHORIZE_URL',
+        "https://login.microsoftonline.com/46ae710d-4335-430b-b7c8-f87b925b1d44/oauth2/v2.0/authorize"
+    )
+    TOKEN_URL = os.environ.get(
+        'TOKEN_URL',
+        "https://login.microsoftonline.com/46ae710d-4335-430b-b7c8-f87b925b1d44/oauth2/v2.0/token"
+    )
+    REFRESH_TOKEN_URL = os.environ.get('REFRESH_TOKEN_URL', TOKEN_URL)
+    REVOKE_TOKEN_URL = os.environ.get('REVOKE_TOKEN_URL', None)
+    CLIENT_ID = os.environ.get('CLIENT_ID', "a55dc350-8107-46dd-bd32-a46f921a65ba")
+    CLIENT_SECRET = os.environ.get('CLIENT_SECRET', "5x_8Q~aHSERSz5jTocAS2V42GnJ5DJPUQgRCjbOq")
+    REDIRECT_URI = os.environ.get('REDIRECT_URI', "http://localhost:8501")
+    SCOPE = os.environ.get('SCOPE', "User.Read")
+
+    oauth2 = OAuth2Component(
+        CLIENT_ID,
+        CLIENT_SECRET,
+        AUTHORIZE_URL,
+        TOKEN_URL,
+        REFRESH_TOKEN_URL,
+        REVOKE_TOKEN_URL
+    )
+
+    if 'token' not in st.session_state:
+        st.session_state['token'] = None
+
+    if st.session_state['token'] is None:
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.image("garces_data_analytics.png", width=300)
+            st.markdown(
+                "<h3 style='text-align: center;'>Inicia sesión para continuar</h3>",
+                unsafe_allow_html=True
+            )
+            with st.spinner("Esperando autenticación..."):
+                result = oauth2.authorize_button(
+                    "🟦 Iniciar sesión con Microsoft",
+                    REDIRECT_URI,
+                    SCOPE
+                )
+            if result and 'token' in result:
+                st.session_state.token = result.get('token')
+                st.rerun()
+        st.stop()
+
+    # -------------------------------------------------------------------------
+    # 2) OBJETOS PRINCIPALES Y FUNCIONES AUXILIARES
+    # -------------------------------------------------------------------------
+    embed_agent = EmbeddingAgent()
+    client = Client()
+    relational_client = RelationalClient()
+
+    def read_file(file):
+        text = ""
+        reader = PyPDF2.PdfReader(file)
+        for page in reader.pages:
+            text += page.extract_text() + "\n"
+        return text
+
+    def limpiar_output(json_str):
+        json_str = json_str.strip('```')
+        json_str = json_str.replace('json', '')
+        return json_str.strip()
+
+    def process_pdf(pdf_text, prompt):
+        user_prompt = prompt + f"{pdf_text}"
+        agent = Agent(user_prompt)
+        raw_output = agent.getResp()
+        raw_output = limpiar_output(raw_output)
+
+        if not raw_output.strip().startswith("{") or not raw_output.strip().endswith("}"):
+            first_brace_index = raw_output.find("{")
+            last_brace_index = raw_output.rfind("}")
+            if first_brace_index == -1 or last_brace_index == -1:
+                raise ValueError(
+                    "No se encontró JSON válido en la respuesta del modelo.\n\n"
+                    f"Respuesta completa:\n{raw_output}"
+                )
+            raw_output = raw_output[first_brace_index:last_brace_index+1]
+
+        try:
+            cv_data = CVData.parse_raw(raw_output)
+        except ValidationError as ve:
+            raise ValueError(
+                f"El modelo no devolvió JSON válido o faltan campos: {ve}\n\nRespuesta:\n{raw_output}"
+            )
+        except json.JSONDecodeError as je:
+            raise ValueError(
+                f"No se pudo decodificar el JSON: {je}\n\nRespuesta:\n{raw_output}"
+            )
+
+        data_dict = cv_data.dict(by_alias=True)
+        df = pd.DataFrame([data_dict])
+        return df
+
+    # -------------------------------------------------------------------------
+    # 3) INTERFAZ PRINCIPAL CON PESTAÑAS
+    # -------------------------------------------------------------------------
     st.title("Caza Talentos: Encontrar al Candidato Ideal")
     st.markdown(
         """
-        Bienvenido a la herramienta de **gestión de CVs**. 
-        Aquí puedes subir currículums en PDF, extraer datos relevantes, 
-        almacenarlos y consultarlos en una base de datos, y realizar búsquedas específicas.
+        Bienvenido a la herramienta de **gestión de CVs**.
+        Sube un currículum PDF, extrae datos relevantes, almacénalo y consúltalo en la base de datos.
         """
     )
     st.divider()
 
-    # Se crean las tres pestañas
+    # Barra lateral
+    st.sidebar.header("Instrucciones")
+    st.sidebar.markdown(
+        """
+        - **Cargar PDF:** Sube un solo PDF para extraer y editar la información.
+        - **Chat:** Realiza búsquedas y consulta candidatos.
+        - **Tabla:** Visualiza todos los candidatos registrados.
+        """
+    )
+
     tab1, tab2, tab3 = st.tabs(["📁 Cargar PDF", "💬 Chat", "📊 Tabla"])
 
-    # ------------------
+    # -------------------------
     # Pestaña 1: Cargar PDF
-    # ------------------
+    # -------------------------
     with tab1:
-        prompt = """
-        A continuación verás un currículum vitae. 
-        Extrae los siguientes campos y devuélvelos ÚNICAMENTE en formato JSON válido: 
-        {
-          "Nombre": "...",
-          "Ciudad": "...",
-          "País": "...",
-          "Fecha de Nacimiento": "...",
-          "Carrera": "...",
-          "Número de Teléfono": "...",
-          "Correo": "...",
-          "Entidad Donde Estudió": "...",
-          "Resumen del Postulante": "...",
-          "RUN del postulante": ""
-        }
-        
-        No incluyas texto adicional, ni bloques de código. 
-        Currículum:
-        """
-
         st.subheader("Subir y Procesar PDF")
         st.write(
             """
-            Sube uno o más archivos PDF. Se extraerán los datos y se mostrarán en un DataFrame editable.
-            Cuando estés conforme, haz clic en "**Subir a la base de datos**" para guardar la información.
+            Sube un archivo PDF. Se extraerán los datos y se mostrarán en un DataFrame editable.
+            Cuando estés conforme, haz clic en **Subir a la base de datos** para guardar la información.
             """
         )
 
-        uploaded_files = st.file_uploader(
-            "Arrastra o haz clic para subir PDFs",
-            type=["pdf"], 
-            accept_multiple_files=True
+        pdf_file = st.file_uploader(
+            "Arrastra o haz clic para subir un PDF",
+            type=["pdf"],
+            accept_multiple_files=False
         )
 
-        if uploaded_files:
-            all_dfs = []
-            for pdf_file in uploaded_files:
+        if pdf_file:
+            with st.spinner("Extrayendo información del PDF..."):
                 pdf_text = read_file(pdf_file)
-                if not pdf_text.strip():
-                    st.warning(f"El archivo '{pdf_file.name}' no contiene texto y será omitido.")
-                    continue
-                df = process_pdf(pdf_text, prompt)
-                all_dfs.append(df)
+            if not pdf_text.strip():
+                st.warning(f"El archivo '{pdf_file.name}' no contiene texto y será omitido.")
+            else:
+                # Prompt para extracción de datos
+                prompt = (
+                    "A continuación verás un currículum vitae. "
+                    "Extrae los siguientes campos y devuélvelos ÚNICAMENTE en formato JSON válido: "
+                    '{"Nombre": "...", "Ciudad": "...", "País": "...", "Fecha de Nacimiento": "...", '
+                    '"Carrera": "...", "Número de Teléfono": "...", "Correo": "...", '
+                    '"Entidad Donde Estudió": "...", "Resumen del Postulante": "...", "RUN del postulante": ""} '
+                    "No incluyas texto adicional, ni bloques de código.\nCurrículum:\n"
+                )
 
-            if all_dfs:
-                final_df = pd.concat(all_dfs, ignore_index=True)
-                st.markdown("### Vista previa del DataFrame editable")
-                
-                # Guardamos el DataFrame en el estado de sesión la primera vez
+                try:
+                    df = process_pdf(pdf_text, prompt)
+                except Exception as e:
+                    st.error(f"Error al procesar el PDF: {e}")
+                    st.stop()
+
+                df["pdf_name"] = pdf_file.name
+                run_value = df.iloc[0]["RUN del postulante"]
+
+                # Guardar el PDF con nombre basado en RUN
+                safe_run = run_value.replace(".", "").replace("-", "").replace(" ", "")
+                new_pdf_name = f"{safe_run}.pdf"
+                pdf_bytes = pdf_file.getvalue()
+                with open(os.path.join(UPLOAD_DIR, new_pdf_name), "wb") as f:
+                    f.write(pdf_bytes)
+                st.success("PDF procesado y guardado correctamente.")
+
+                st.markdown("### Revisa y edita la información extraída")
                 if "editable_df" not in st.session_state:
-                    st.session_state.editable_df = final_df.copy()
-                
-                # Mostrar el DataFrame editable con AgGrid
+                    st.session_state.editable_df = df.copy()
+                else:
+                    st.session_state.editable_df = df.copy()
+
+                # Configuración de AgGrid para edición
                 gb = GridOptionsBuilder.from_dataframe(st.session_state.editable_df)
-                gb.configure_default_column(editable=True)
+                gb.configure_default_column(editable=True, filter=True, sortable=True)
                 gridOptions = gb.build()
+
+                # Calcular la altura de la tabla en función del número de filas
+                num_filas = st.session_state.editable_df.shape[0]
+                altura = num_filas * 35 + 50
+
                 grid_response = AgGrid(
                     st.session_state.editable_df,
                     gridOptions=gridOptions,
                     update_mode="MODEL_CHANGED",
-                    theme="blue"
+                    theme="blue",
+                    height=altura,
+                    fit_columns_on_grid_load=True
                 )
-                # Actualizamos el DataFrame editable según las ediciones
                 st.session_state.editable_df = pd.DataFrame(grid_response["data"])
-                
+
                 if st.button("Subir a la base de datos"):
                     def valid_run(x):
                         x_str = str(x).strip().lower()
                         return x_str != "" and x_str != "no especificado"
-                    
-                    mask = st.session_state.editable_df["RUN del postulante"].apply(valid_run)
-                    valid_rows = st.session_state.editable_df[mask]
-                    invalid_rows = st.session_state.editable_df[~mask]
-                    
+
+                    df_edited = st.session_state.editable_df
+                    mask = df_edited["RUN del postulante"].apply(valid_run)
+                    valid_rows = df_edited[mask]
+                    invalid_rows = df_edited[~mask]
+
                     if not valid_rows.empty:
                         try:
-                            with st.spinner("Subiendo datos..."):
-                                relational_client.insert_to_db(valid_rows)
+                            st.info("Insertando en la base de datos...")
+                            relational_client.insert_to_db(valid_rows)
+                            time.sleep(1)
+                            st.info("Ejecutando proceso de Merge...")
+                            relational_client.executeSPCandidatos()
+                            time.sleep(1)
+                            st.info("Obteniendo candidatos insertados...")
+                            df_insertados = relational_client.getInsertedCandidates()
+                            time.sleep(1)
+                            df_updated = relational_client.getUpdatedCandidates()
+                            time.sleep(1)
+                            run_insertados = df_insertados['RUN'].unique()
+                            run_updated = df_updated['RUN'].unique()
+
+                            st.info(f"Se insertaron RUN: {run_insertados}")
+                            st.info(f"Se actualizaron RUN: {run_updated}")
+
+                            st.info("Insertando en Milvus...")
+                            if run_value in run_insertados:
+                                print("insertado")
+                                client.insert(pdf_file, run_value)
+                            if run_value in run_updated:
+
+                                print("actualizado")
+                                client.deleteByRun(run_value=run_value)
+                                client.insert(pdf_file, run_value)
+                            st.info("Ejecutando proceso de limpieza...")
+                            relational_client.executeSPTruncate()
                             st.success("¡Datos subidos correctamente!")
-                            # Actualizamos el DataFrame en el estado de sesión para conservar solo las filas sin RUN válido
+                            # Se conservan solo las filas inválidas para revisión
                             st.session_state.editable_df = invalid_rows.copy()
                         except Exception as e:
                             st.error(f"Error al subir a la base de datos: {e}")
                     else:
-                        st.info("No hay filas con un RUN válido para subir.")
-            else:
-                st.info("No se procesaron archivos válidos para mostrar vista previa.")
+                        st.warning("No hay un RUN válido para subir.")
         else:
-            st.info("Por favor, sube al menos un archivo PDF.")
+            st.info("Por favor, sube un archivo PDF para comenzar.")
 
     # ------------------
     # Pestaña 2: Chat
@@ -322,49 +299,84 @@ def main():
         st.subheader("Chat de Búsqueda y Prueba")
         st.write(
             """
-            Aquí puedes realizar **búsquedas** en el sistema vectorial (Milvus). 
-            Por ejemplo, escribe algo como "busco un desarrollador con experiencia en Python" 
-            y verás los resultados más relacionados con ese texto.
+            Realiza búsquedas en el sistema vectorial. 
+            Ejemplo: "Busco un desarrollador con experiencia en Python".
             """
         )
-        # Inicializar el historial del chat en el estado de sesión
+
+        # Botón para limpiar historial
+        if st.button("Limpiar historial"):
+            st.session_state.chat_history = []
+
         if "chat_history" not in st.session_state:
             st.session_state.chat_history = []
-        
+
         st.markdown("### Historial del Chat")
         for chat in st.session_state.chat_history:
-            st.markdown(f"**{chat['sender']}**: {chat['message']}")
-        
-        user_input = st.text_input("Pregunta o consulta:", placeholder="Ejemplo: 'Busco un ingeniero en Chile'")
-    
+            if chat['sender'] == "Usuario":
+                st.markdown(f"**Usuario:** {chat['message']}")
+            else:
+                st.markdown(f"**Bot:** {chat['message']}")
+
+        user_input = st.text_input(
+            "Escribe tu consulta:",
+            placeholder="Ejemplo: 'Busco un ingeniero en Chile'"
+        )
+
         if st.button("Enviar Consulta"):
             if user_input.strip():
                 with st.spinner("Consultando..."):
-                    r = client.question(user_input)
-                st.session_state.chat_history.append({"sender": "Usuario", "message": user_input})
-                st.session_state.chat_history.append({"sender": "Bot", "message": r})
+                    try:
+                        r = client.question(user_input)
+                    except Exception as e:
+                        st.error(f"Error en la consulta: {e}")
+                        r = "No se pudo obtener respuesta."
+                st.session_state.chat_history.append(
+                    {"sender": "Usuario", "message": user_input}
+                )
+                st.session_state.chat_history.append(
+                    {"sender": "Bot", "message": r}
+                )
             else:
-                st.warning("Por favor, escribe un mensaje antes de enviar.")
+                st.warning("Escribe un mensaje antes de enviar.")
 
-    # ------------------
-    # Pestaña 3: Tabla
-    # ------------------
+    # -------------------------------------------------------------------------
+    # Pestaña 3: Tabla de Candidatos (★ Sección con el “botón” Ver PDF)
+    # -------------------------------------------------------------------------
     with tab3:
         st.subheader("Tabla de Candidatos")
-        st.write(
-            """
-            A continuación, se muestra la información actual de la base de datos relacional.
-            """
-        )
+        st.write("Visualiza la información actual de la base de datos relacional.")
 
         try:
-            with st.spinner("Cargando datos desde la base de datos..."):
+            with st.spinner("Cargando datos..."):
                 to_show = relational_client.getAllCandidates()
-                st.dataframe(to_show, use_container_width=True)
+
+                # (★) Generamos columna con enlace al PDF
+                def generate_pdf_link(run_value):
+                    safe_run = str(run_value).replace(".", "").replace("-", "").replace(" ", "")
+                    pdf_path = os.path.join(UPLOAD_DIR, f"{safe_run}.pdf")
+
+                    if os.path.exists(pdf_path):
+                        with open(pdf_path, "rb") as pdf_file:
+                            pdf_bytes = pdf_file.read()
+                        b64 = base64.b64encode(pdf_bytes).decode('utf-8')
+                        # Enlace tipo HTML, “target=_blank” abre en nueva pestaña
+                        link = f'<a href="data:application/pdf;base64,{b64}" target="_blank">Ver PDF</a>'
+                    else:
+                        link = "No disponible"
+                    return link
+
+                # (★) Creamos una nueva columna “Ver PDF” con el enlace/botón
+                to_show["Ver PDF"] = to_show["RUN del postulante"].apply(generate_pdf_link)
+
+                # (★) Mostramos la tabla como HTML para que los enlaces sean clicables
+                st.write(to_show.to_html(escape=False, index=False), unsafe_allow_html=True)
+
         except Exception as e:
             st.error(f"No se pudo cargar la tabla de candidatos: {e}")
 
         st.divider()
+        st.markdown("Utiliza las herramientas de la tabla para ordenar y filtrar la información.")
 
-main()
-
+if __name__ == "__main__":
+    main()

@@ -14,13 +14,14 @@ class Client:
     )
     def getClient(self):
         return self.client
-    def insert(self, pdf_path):
+    def insert(self, pdf_path, RUN):
         """
         Lee un PDF, obtiene los embeddings en chunks y los inserta en la colección
         con un resume_id específico (por ejemplo, 101, 102...).
         """
         text = read_file(pdf_path)
         chunk_embeddings = get_embed_from_text(text, chunk_size=None)
+        print(chunk_embeddings)
         resume_id = get_current_id()
         # Insertamos en Milvus Lite: auto_id genera 'id' automáticamente,
         # nosotros sólo pasamos "resume_id" como campo extra.
@@ -28,7 +29,7 @@ class Client:
           print(chunk[0], chunk[1])
           insert_result = self.client.insert(
               collection_name='resume_collection',
-              data={"resume_id": resume_id, "vector": chunk[0],'text':chunk[1]}
+              data={"RUN":RUN, "vector": chunk[0],'text':chunk[1]}
           )
         print(f"Ingresado el CV {pdf_path} con {len(chunk_embeddings)} chunks (resume_id={resume_id}).")
         # ingest_pdf(pdf, get_current_id(), chunk=None)
@@ -36,14 +37,17 @@ class Client:
 ## yo
     def question(self,question):
         embed_agent = EmbeddingAgent()
+        print(embed_agent)
         search_res = self.client.search(
             collection_name="resume_collection",
             data=[embed_agent.get_embedding(question)[0]],
             limit=2,
             search_params={"metric_type": "COSINE", "params": {}},
-            output_fields=["text", 'resume_id'],  # usa el campo real
+            output_fields=["text"],  # usa el campo real
         )
+        print(search_res)
         search_res_list = [item['entity']['text'] for sublist in search_res for item in sublist]
+        print(search_res_list)
         search_res_modified = []
         for i in search_res_list:
             promt = f"""Quiero que de este texto, hagas un resumen de lo mas importante:
@@ -58,6 +62,17 @@ class Client:
             search_res_modified.append(agent_resp + "\n")
             textos = "\n".join(search_res_modified)  
         return textos #search_res_modified #search_res
+    def deleteByRun(self, run_value, collection_name="resume_collection"):
+        expr = f"RUN == '{run_value}'"  # Expresión para filtrar por RUN
+        print(run_value)
+        try:
+            result = self.client.delete(
+                collection_name=collection_name,
+                expr=expr
+            )
+            print(f"Registros eliminados en Milvus con RUN='{run_value}': {result}")
+        except Exception as e:
+            print(f"Error al eliminar registros con RUN='{run_value}': {e}")
 ## yo
  
     # def question(self,question):
@@ -107,12 +122,31 @@ class RelationalClient():
     def insert_to_db(self,df):
         df.to_sql("STG_CANDIDATOS",con = self.engine2 ,if_exists = 'append',schema = 'API_RECLUTAMIENTO',  index = False)
     def getAllCandidates(self):
-        query = "SELECT * FROM [API_RECLUTAMIENTO].[STG_CANDIDATOS]"
+        query = "SELECT * FROM [API_RECLUTAMIENTO].[CANDIDATOS]"
         df = pd.read_sql(query, con=self.engine2)
         return df
-    def executeSP(self):
+    def executeSPCandidatos(self):
+        with self.engine2.connect() as connection:
+            result = connection.execute(sqlalchemy.text("EXEC [API_RECLUTAMIENTO].[MG_CANDIDATOS]"))
+            connection.commit()
+    def executeSPTruncate(self):
+        with self.engine2.connect() as connection:
+            result = connection.execute(sqlalchemy.text("EXEC [API_RECLUTAMIENTO].[TRUNCATE_AUX_TABLES]"))
+            connection.commit()  
+    def getInsertedCandidates(self):
+        query = "SELECT * FROM [API_RECLUTAMIENTO].[CANDIDATOS_NUEVOS]"
+        # Ejecuta la consulta y obtén el resultado en un DataFrame
+        df = pd.read_sql_query(query, self.engine2)
+        print(df)
+        return df
+    def getUpdatedCandidates(self):
+        query = "SELECT * FROM [API_RECLUTAMIENTO].[CANDIDATOS_ACTUALIZADOS]"
+        # Ejecuta la consulta y obtén el resultado en un DataFrame
+        df = pd.read_sql_query(query, self.engine2)
+        print(df)
+        return df
+
         
-    
 
 class Agent:
     system_prompt = """you are an AI helpful assistant .
@@ -265,7 +299,7 @@ def limpiar_output(json_str):
     json_str = json_str.replace('json', '')  
     return json_str.strip()
 
-def process_pdf(pdf_text, prompt):
+def process_pdf(pdf_text, prompt, pdf_name):
     """
     Recibe el texto de un PDF y un prompt, llama a la clase Agent,
     interpreta la respuesta como JSON y la devuelve en un DataFrame.
@@ -276,6 +310,7 @@ def process_pdf(pdf_text, prompt):
 
     output = limpiar_output(output)
     output = json.loads(output)
+    output['Nombre Archivo']  = pdf_name
 
     # Creamos un DataFrame con una sola fila
     df = pd.DataFrame([output])
