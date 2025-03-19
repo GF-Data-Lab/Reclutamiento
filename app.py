@@ -13,7 +13,7 @@ from pydantic import ValidationError, BaseModel, Field
 from typing import Optional
 
 # Importa tus clases/funciones principales
-from functions import Agent, get_current_id, EmbeddingAgent, Client, RelationalClient
+from functions import Agent, EmbeddingAgent, Client, RelationalClient
 
 # Directorio local donde guardarás los PDFs
 UPLOAD_DIR = "pdf_uploads"
