@@ -4,105 +4,136 @@ import PyPDF2
 import sqlalchemy
 from pymilvus import MilvusClient, FieldSchema, CollectionSchema, DataType, Collection,connections
 import pandas as pd
+from pymilvus import MilvusClient
+# Asegúrate de que tienes importados los módulos que usas para:
+#   - leer el PDF: read_file(pdf_path)
+#   - generar embeddings: get_embed_from_text, EmbeddingAgent
+#   - Agente para generar respuestas: Agent
+#   - generar/generar ID actual: get_current_id
+
 class Client:
-    CLUSTER_ENDPOINT="https://in03-1e156eb96457cf1.serverless.gcp-us-west1.cloud.zilliz.com" # Set your cluster endpoint
-    TOKEN="cc054aa36752b507d5faf3f9b16dbf0aaecd282899f4e27473a1e70498d54941e8f59ece91e52c1abbdfc1c126da876ee9a9af7e" # Set your token
-   
-    client = MilvusClient(
-        uri = CLUSTER_ENDPOINT, # Cluster endpoint obtained from the console
-        token = TOKEN, # API key or a colon-separated cluster username and password,
-    )
+    CLUSTER_ENDPOINT = "https://in03-1e156eb96457cf1.serverless.gcp-us-west1.cloud.zilliz.com"  # Ajusta tu endpoint si cambia
+    TOKEN = "cc054aa36752b507d5faf3f9b16dbf0aaecd282899f4e27473a1e70498d54941e8f59ece91e52c1abbdfc1c126da876ee9a9af7e"  # Ajusta tu token
+
+    def __init__(self):
+        """
+        Constructor de la clase, que crea la instancia de MilvusClient.
+        """
+        self.client = MilvusClient(
+            uri=self.CLUSTER_ENDPOINT,
+            token=self.TOKEN
+        )
+
     def getClient(self):
+        """
+        Retorna la instancia de MilvusClient (por si quieres usar métodos de la librería).
+        """
         return self.client
+
     def insert(self, pdf_path, RUN):
         """
-        Lee un PDF, obtiene los embeddings en chunks y los inserta en la colección
-        con un resume_id específico (por ejemplo, 101, 102...).
+        Lee un PDF, obtiene los embeddings en chunks y los inserta en la colección.
+        Usa el campo 'RUN' para asociarlo al registro y 'text' para el texto original.
         """
         text = read_file(pdf_path)
         chunk_embeddings = get_embed_from_text(text, chunk_size=None)
         print(chunk_embeddings)
+
+        # Ejemplo de un ID local para controlar tus resumes si lo necesitas
         resume_id = get_current_id()
-        # Insertamos en Milvus Lite: auto_id genera 'id' automáticamente,
-        # nosotros sólo pasamos "resume_id" como campo extra.
+
+        # Insertamos chunk por chunk en la colección 'resume_collection'
         for chunk in chunk_embeddings:
-          print(chunk[0], chunk[1])
-          insert_result = self.client.insert(
-              collection_name='resume_collection',
-              data={"RUN":RUN, "vector": chunk[0],'text':chunk[1]}
-          )
-        print(f"Ingresado el CV {pdf_path} con {len(chunk_embeddings)} chunks (resume_id={resume_id}).")
-        # ingest_pdf(pdf, get_current_id(), chunk=None)
- 
-## yo
-    def question(self,question):
+            print(chunk[0], chunk[1])
+            _ = self.client.insert(
+                collection_name='resume_collection',
+                data={
+                    "RUN": RUN,
+                    "vector": chunk[0],
+                    "text": chunk[1]
+                }
+            )
+
+        print(f"Ingresado el CV '{pdf_path}' con {len(chunk_embeddings)} chunks (resume_id={resume_id}).")
+
+    def question(self, question):
+        """
+        Recibe una pregunta, obtiene su embedding y hace un search en la colección 'resume_collection'.
+        Luego, con cada resultado, arma un resumen a través de un agente (Agent).
+        """
         embed_agent = EmbeddingAgent()
         print(embed_agent)
+
+        # Obtenemos el embedding de la pregunta y hacemos un search en la colección
         search_res = self.client.search(
             collection_name="resume_collection",
             data=[embed_agent.get_embedding(question)[0]],
             limit=2,
             search_params={"metric_type": "COSINE", "params": {}},
-            output_fields=["text"],  # usa el campo real
+            output_fields=["text"]
         )
         print(search_res)
+
+        # Parseamos los resultados para quedarnos sólo con el texto
         search_res_list = [item['entity']['text'] for sublist in search_res for item in sublist]
         print(search_res_list)
+
+        # Enviamos cada texto a un prompt/Agent para generar un resumen final
         search_res_modified = []
         for i in search_res_list:
-            promt = f"""Quiero que de este texto, hagas un resumen de lo mas importante:
- 
-                        '{i}'
-                       
-                        Muestralo de manera ordenada y resumida que tu output sea solo texto, por favor sin comandos de saltos de linea ni nada.
-                        Quien verá este texto es una persona encargada de reclutamiento de personal, por lo que puedes hacer resumen de cada uno de los candidatos y ciertas recomendaciones.
-                        """
-            agent = Agent(promt)
+            prompt = f"""Quiero que de este texto, hagas un resumen de lo mas importante:
+
+                         '{i}'
+
+                         Muestralo de manera ordenada y resumida que tu output sea solo texto, 
+                         por favor sin comandos de saltos de linea ni nada. 
+                         Quien verá este texto es una persona encargada de reclutamiento de personal, 
+                         por lo que puedes hacer resumen de cada uno de los candidatos y ciertas recomendaciones.
+                      """
+            agent = Agent(prompt)
             agent_resp = agent.getResp()
             search_res_modified.append(agent_resp + "\n")
-            textos = "\n".join(search_res_modified)  
-        return textos #search_res_modified #search_res
+
+        # Unimos todo en un único string y lo devolvemos
+        textos = "\n".join(search_res_modified)
+        return textos
+
+    def listAllRuns(self, collection_name="resume_collection"):
+        """
+        Retorna una lista con todos los valores únicos de RUN en la colección dada.
+        """
+        try:
+            # Realiza la consulta para obtener el campo RUN de todos los registros
+            results = self.client.query(
+                collection_name=collection_name,
+                filter="",limit=5,  # Consulta vacía => trae todos
+                output_fields=["RUN"]
+            )
+
+            # Extrae los valores únicos de RUN
+            runs = {r["RUN"] for r in results}
+            return list(runs)
+
+        except Exception as e:
+            print(f"Error al obtener la lista de RUN: {e}")
+            return []
+
     def deleteByRun(self, run_value, collection_name="resume_collection"):
+        """
+        Elimina todos los registros de la colección 'resume_collection' 
+        cuyo campo RUN coincida con 'run_value'.
+        """
         expr = f"RUN == '{run_value}'"  # Expresión para filtrar por RUN
-        print(run_value)
+        print(f"Eliminando registros con RUN='{run_value}'...")
         try:
             result = self.client.delete(
                 collection_name=collection_name,
-                expr=expr
+                filter=expr
             )
             print(f"Registros eliminados en Milvus con RUN='{run_value}': {result}")
         except Exception as e:
             print(f"Error al eliminar registros con RUN='{run_value}': {e}")
-## yo
- 
-    # def question(self,question):
-    #     embed_agent = EmbeddingAgent()
-    #     search_res = self.client.search(
-    #         collection_name="resume_collection",
-    #         data=[embed_agent.get_embedding(question)[0]],
-    #         limit=5,
-    #         search_params={"metric_type": "COSINE", "params": {}},
-    #         output_fields=["text", 'resume_id'],  # usa el campo real
-    #     )
-    #     # parsed_results = json.loads(search_res[0])
-    #     return [item['entity']['text'] for sublist in search_res for item in sublist] #search_res
- 
-    def empty_collection(self, collection_name="resume_collection"):
-        """
-        Elimina la colección por completo (incluidos todos sus datos y esquema).
-        """
-        try:
-            self.client.drop_collection(collection_name)
-            print(f"La colección '{collection_name}' ha sido eliminada por completo.")
-            # Aquí podrías recrearla si lo necesitas...
-            # self.client.create_collection(collection_name, fields=...)
-        except Exception as e:
-            print(f"No se pudo eliminar la colección '{collection_name}': {e}")
 
-def get_current_id():
-    with open("resume_id.txt", "r") as file:
-        current_id = int(file.readlines()[0])
-    return current_id
 
 
 class RelationalClient():
