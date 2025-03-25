@@ -54,7 +54,7 @@ class Client:
                 }
             )
 
-        print(f"Ingresado el CV '{pdf_path}' con {len(chunk_embeddings)} chunks (resume_id={resume_id}).")
+        # print(f"Ingresado el CV '{pdf_path}' con {len(chunk_embeddings)} chunks (resume_id={resume_id}).")
 
     def question(self, question):
         """
@@ -62,7 +62,7 @@ class Client:
         Luego, con cada resultado, arma un resumen a través de un agente (Agent).
         """
         embed_agent = EmbeddingAgent()
-        print(embed_agent)
+        # print(embed_agent)
 
         # Obtenemos el embedding de la pregunta y hacemos un search en la colección
         search_res = self.client.search(
@@ -72,11 +72,11 @@ class Client:
             search_params={"metric_type": "COSINE", "params": {}},
             output_fields=["text"]
         )
-        print(search_res)
+        # print(search_res)
 
         # Parseamos los resultados para quedarnos sólo con el texto
         search_res_list = [item['entity']['text'] for sublist in search_res for item in sublist]
-        print(search_res_list)
+        # print(search_res_list)
 
         # Enviamos cada texto a un prompt/Agent para generar un resumen final
         search_res_modified = []
@@ -151,6 +151,8 @@ class RelationalClient():
     except Exception as e:
         print(e)
     def insert_to_db(self,df):
+        print("imprimiendo df")
+        print(df)
         df.to_sql("STG_CANDIDATOS",con = self.engine2 ,if_exists = 'append',schema = 'API_RECLUTAMIENTO',  index = False)
     def getAllCandidates(self):
         query = "SELECT * FROM [API_RECLUTAMIENTO].[CANDIDATOS]"
@@ -168,13 +170,13 @@ class RelationalClient():
         query = "SELECT * FROM [API_RECLUTAMIENTO].[CANDIDATOS_NUEVOS]"
         # Ejecuta la consulta y obtén el resultado en un DataFrame
         df = pd.read_sql_query(query, self.engine2)
-        print(df)
+        # print(df)
         return df
     def getUpdatedCandidates(self):
         query = "SELECT * FROM [API_RECLUTAMIENTO].[CANDIDATOS_ACTUALIZADOS]"
         # Ejecuta la consulta y obtén el resultado en un DataFrame
         df = pd.read_sql_query(query, self.engine2)
-        print(df)
+        # print(df)
         return df
 
         
@@ -284,12 +286,12 @@ def ingest_pdf(pdf_path, resume_id, chunk_size=1000):
     # Insertamos en Milvus Lite: auto_id genera 'id' automáticamente,
     # nosotros sólo pasamos "resume_id" como campo extra.
     for chunk in chunk_embeddings:
-      print(chunk[0], chunk[1])
+    #   print(chunk[0], chunk[1])
       insert_result = client.insert(
           collection_name='resume_collection',
           data={"resume_id": resume_id, "vector": chunk[0],'text':chunk[1]}
       )
-    print(f"Ingresado el CV {pdf_path} con {len(chunk_embeddings)} chunks (resume_id={resume_id}).")
+    # print(f"Ingresado el CV {pdf_path} con {len(chunk_embeddings)} chunks (resume_id={resume_id}).")
 
 class EmbeddingAgent:
     def get_embedding(self,fragment):

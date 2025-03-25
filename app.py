@@ -86,12 +86,12 @@ def main():
         "https://login.microsoftonline.com/46ae710d-4335-430b-b7c8-f87b925b1d44/oauth2/v2.0/token"
     )
     REFRESH_TOKEN_URL = os.environ.get('REFRESH_TOKEN_URL', TOKEN_URL)
-    REVOKE_TOKEN_URL = os.environ.get('REVOKE_TOKEN_URL', None)
+    REVOKE_TOKEN_URL = os.environ.get('REVOKE_TOKEN_URL', None) 
     CLIENT_ID = os.environ.get('CLIENT_ID', "a55dc350-8107-46dd-bd32-a46f921a65ba")
     CLIENT_SECRET = os.environ.get('CLIENT_SECRET', "5x_8Q~aHSERSz5jTocAS2V42GnJ5DJPUQgRCjbOq")
-    # REDIRECT_URI = os.environ.get('REDIRECT_URI', "http://localhost:8501")
-    REDIRECT_URI = os.environ.get('REDIRECT_URI', "https://reclutamientogf-e9gugtbef9bvcpf8.brazilsouth-01.azurewebsites.net/")
-   
+    REDIRECT_URI = os.environ.get('REDIRECT_URI', "http://localhost:8501")
+    # REDIRECT_URI = os.environ.get('REDIRECT_URI', "https://reclutamientogf-e9gugtbef9bvcpf8.brazilsouth-01.azurewebsites.net/")
+
     SCOPE = os.environ.get('SCOPE', "User.Read")
 
     oauth2 = OAuth2Component(
@@ -283,6 +283,7 @@ def main():
                         return x_str != "" and x_str != "no especificado"
 
                     df_edited = st.session_state.editable_df
+                    print(df_edited)
                     mask = df_edited["RUN del postulante"].apply(valid_run)
                     valid_rows = df_edited[mask]
                     invalid_rows = df_edited[~mask]
