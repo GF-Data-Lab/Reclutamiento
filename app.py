@@ -89,7 +89,9 @@ def main():
     REVOKE_TOKEN_URL = os.environ.get('REVOKE_TOKEN_URL', None)
     CLIENT_ID = os.environ.get('CLIENT_ID', "a55dc350-8107-46dd-bd32-a46f921a65ba")
     CLIENT_SECRET = os.environ.get('CLIENT_SECRET', "5x_8Q~aHSERSz5jTocAS2V42GnJ5DJPUQgRCjbOq")
-    REDIRECT_URI = os.environ.get('REDIRECT_URI', "http://localhost:8501")
+    # REDIRECT_URI = os.environ.get('REDIRECT_URI', "http://localhost:8501")
+    REDIRECT_URI = os.environ.get('REDIRECT_URI', " https://reclutamientogf-e9gugtbef9bvcpf8.brazilsouth-01.azurewebsites.net")
+   
     SCOPE = os.environ.get('SCOPE', "User.Read")
 
     oauth2 = OAuth2Component(
