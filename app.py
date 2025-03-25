@@ -15,10 +15,41 @@ from typing import Optional
 # Importa tus clases/funciones principales
 from functions import Agent, EmbeddingAgent, Client, RelationalClient
 
-# Directorio local donde guardarás los PDFs
-UPLOAD_DIR = "pdf_uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+# --- IMPORTANTE: Azure Blob Storage con SAS ---
+from azure.storage.blob import ContainerClient
 
+# ---------------------------
+# 1) CONFIGURAR SAS Y CONTENEDOR
+# ---------------------------
+SAS_TOKEN = "sp=racwdlmeop&st=2025-03-19T19:26:46Z&se=2026-03-20T03:26:46Z&spr=https&sv=2024-11-04&sr=c&sig=GoTbNoTgOrPC4SDjSv51K40Ifb7KC7TQBH00dEp87Gg%3D"
+ACCOUNT_NAME = "adlgfprod001"
+CONTAINER_NAME = "reclutamientogf"
+
+CONTAINER_URL = f"https://{ACCOUNT_NAME}.blob.core.windows.net/{CONTAINER_NAME}?{SAS_TOKEN}"
+container_client = ContainerClient.from_container_url(CONTAINER_URL)
+
+# ---------------------------
+# 2) Funciones para subir y descargar PDFs
+# ---------------------------
+def upload_pdf_to_blob(run_value: str, pdf_bytes: bytes):
+    safe_run = run_value.replace(".", "").replace("-", "").replace(" ", "")
+    blob_name = f"curriculums/{safe_run}.pdf"
+    blob_client = container_client.get_blob_client(blob=blob_name)
+    blob_client.upload_blob(pdf_bytes, overwrite=True)
+
+def download_pdf_from_blob(run_value: str) -> Optional[bytes]:
+    safe_run = run_value.replace(".", "").replace("-", "").replace(" ", "")
+    blob_name = f"curriculums/{safe_run}.pdf"
+    blob_client = container_client.get_blob_client(blob=blob_name)
+    try:
+        downloader = blob_client.download_blob()
+        return downloader.readall()
+    except Exception:
+        return None
+
+# ---------------------------
+# Modelo Pydantic para parsear el JSON
+# ---------------------------
 class CVData(BaseModel):
     Nombre: str = Field("No especificado", alias="Nombre")
     Ciudad: str = Field("No especificado", alias="Ciudad")
@@ -58,7 +89,7 @@ def main():
     REVOKE_TOKEN_URL = os.environ.get('REVOKE_TOKEN_URL', None)
     CLIENT_ID = os.environ.get('CLIENT_ID', "a55dc350-8107-46dd-bd32-a46f921a65ba")
     CLIENT_SECRET = os.environ.get('CLIENT_SECRET', "5x_8Q~aHSERSz5jTocAS2V42GnJ5DJPUQgRCjbOq")
-    REDIRECT_URI = os.environ.get('REDIRECT_URI', "https://reclutamientogf-e9gugtbef9bvcpf8.brazilsouth-01.azurewebsites.net")
+    REDIRECT_URI = os.environ.get('REDIRECT_URI', "http://localhost:8501")
     SCOPE = os.environ.get('SCOPE', "User.Read")
 
     oauth2 = OAuth2Component(
@@ -209,13 +240,15 @@ def main():
                 df["pdf_name"] = pdf_file.name
                 run_value = df.iloc[0]["RUN del postulante"]
 
-                # Guardar el PDF con nombre basado en RUN
-                safe_run = run_value.replace(".", "").replace("-", "").replace(" ", "")
-                new_pdf_name = f"{safe_run}.pdf"
+                # -------- Subir a Blob en lugar de guardarlo localmente --------
                 pdf_bytes = pdf_file.getvalue()
-                with open(os.path.join(UPLOAD_DIR, new_pdf_name), "wb") as f:
-                    f.write(pdf_bytes)
-                st.success("PDF procesado y guardado correctamente.")
+                try:
+                    upload_pdf_to_blob(run_value, pdf_bytes)
+                    st.success("PDF procesado y subido correctamente a Blob Storage.")
+                except Exception as e:
+                    st.error(f"Error subiendo el PDF a Blob: {e}")
+                    st.stop()
+                # ---------------------------------------------------------------
 
                 st.markdown("### Revisa y edita la información extraída")
                 if "editable_df" not in st.session_state:
@@ -273,18 +306,18 @@ def main():
 
                             st.info("Insertando en Milvus...")
                             if run_value in run_insertados:
-                                print("insertado")
                                 client.insert(pdf_file, run_value)
                             if run_value in run_updated:
-
-                                print("actualizado")
                                 client.deleteByRun(run_value=run_value)
                                 client.insert(pdf_file, run_value)
+
                             st.info("Ejecutando proceso de limpieza...")
                             relational_client.executeSPTruncate()
+
                             st.success("¡Datos subidos correctamente!")
                             # Se conservan solo las filas inválidas para revisión
                             st.session_state.editable_df = invalid_rows.copy()
+
                         except Exception as e:
                             st.error(f"Error al subir a la base de datos: {e}")
                     else:
@@ -292,9 +325,9 @@ def main():
         else:
             st.info("Por favor, sube un archivo PDF para comenzar.")
 
-    # ------------------
-    # Pestaña 2: Chat
-    # ------------------
+    # -------------------------
+    # Pestaña 2: Chat (Usando la API de Chat de Streamlit)
+    # -------------------------
     with tab2:
         st.subheader("Chat de Búsqueda y Prueba")
         st.write(
@@ -304,41 +337,41 @@ def main():
             """
         )
 
+        # Creamos en session_state la lista de mensajes si no existe
+        if "messages" not in st.session_state:
+            st.session_state.messages = []
+
         # Botón para limpiar historial
         if st.button("Limpiar historial"):
-            st.session_state.chat_history = []
+            st.session_state.messages = []
+            st.experimental_rerun()
 
-        if "chat_history" not in st.session_state:
-            st.session_state.chat_history = []
+        # Mostramos todos los mensajes hasta ahora
+        for msg in st.session_state.messages:
+            with st.chat_message(msg["role"]):
+                st.write(msg["content"])
 
-        st.markdown("### Historial del Chat")
-        for chat in st.session_state.chat_history:
-            if chat['sender'] == "Usuario":
-                st.markdown(f"**Usuario:** {chat['message']}")
-            else:
-                st.markdown(f"**Bot:** {chat['message']}")
+        # Campo de entrada estilo chat
+        user_input = st.chat_input("Escribe tu consulta aquí...")
+        if user_input:
+            # Añadimos el mensaje del usuario al historial
+            st.session_state.messages.append({"role": "user", "content": user_input})
 
-        user_input = st.text_input(
-            "Escribe tu consulta:",
-            placeholder="Ejemplo: 'Busco un ingeniero en Chile'"
-        )
+            # Mostramos el mensaje del usuario
+            with st.chat_message("user"):
+                st.write(user_input)
 
-        if st.button("Enviar Consulta"):
-            if user_input.strip():
+            # Obtenemos la respuesta del modelo
+            with st.chat_message("assistant"):
                 with st.spinner("Consultando..."):
                     try:
-                        r = client.question(user_input)
+                        respuesta = client.question(user_input)
                     except Exception as e:
-                        st.error(f"Error en la consulta: {e}")
-                        r = "No se pudo obtener respuesta."
-                st.session_state.chat_history.append(
-                    {"sender": "Usuario", "message": user_input}
-                )
-                st.session_state.chat_history.append(
-                    {"sender": "Bot", "message": r}
-                )
-            else:
-                st.warning("Escribe un mensaje antes de enviar.")
+                        respuesta = f"Error en la consulta: {e}"
+                st.write(respuesta)
+
+            # Guardamos el mensaje del Bot en el historial
+            st.session_state.messages.append({"role": "assistant", "content": respuesta})
 
     # -------------------------------------------------------------------------
     # Pestaña 3: Tabla de Candidatos (★ Sección con el “botón” Ver PDF)
@@ -351,25 +384,16 @@ def main():
             with st.spinner("Cargando datos..."):
                 to_show = relational_client.getAllCandidates()
 
-                # (★) Generamos columna con enlace al PDF
                 def generate_pdf_link(run_value):
-                    safe_run = str(run_value).replace(".", "").replace("-", "").replace(" ", "")
-                    pdf_path = os.path.join(UPLOAD_DIR, f"{safe_run}.pdf")
-
-                    if os.path.exists(pdf_path):
-                        with open(pdf_path, "rb") as pdf_file:
-                            pdf_bytes = pdf_file.read()
+                    pdf_bytes = download_pdf_from_blob(str(run_value))
+                    if pdf_bytes:
                         b64 = base64.b64encode(pdf_bytes).decode('utf-8')
-                        # Enlace tipo HTML, “target=_blank” abre en nueva pestaña
                         link = f'<a href="data:application/pdf;base64,{b64}" target="_blank">Ver PDF</a>'
                     else:
                         link = "No disponible"
                     return link
 
-                # (★) Creamos una nueva columna “Ver PDF” con el enlace/botón
                 to_show["Ver PDF"] = to_show["RUN del postulante"].apply(generate_pdf_link)
-
-                # (★) Mostramos la tabla como HTML para que los enlaces sean clicables
                 st.write(to_show.to_html(escape=False, index=False), unsafe_allow_html=True)
 
         except Exception as e:

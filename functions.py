@@ -40,7 +40,7 @@ class Client:
         print(chunk_embeddings)
 
         # Ejemplo de un ID local para controlar tus resumes si lo necesitas
-        resume_id = get_current_id()
+        resume_id = 0
 
         # Insertamos chunk por chunk en la colección 'resume_collection'
         for chunk in chunk_embeddings:
